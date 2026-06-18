@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Room Layout Planner</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --panel: #ffffff;
+    --ink: #1f2430;
+    --muted: #6b7280;
+    --line: #e3e6ea;
+    --line-strong: #cbd2d9;
+    --accent: #2f6fed;
+    --accent-soft: #e8f0fe;
+    --warn: #e8743b;
+    --danger: #e5484d;
+    --ok: #16a34a;
+    --radius: 10px;
+    --shadow: 0 1px 2px rgba(16,24,40,.06), 0 1px 3px rgba(16,24,40,.08);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-size: 14px;
+  }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+    z-index: 10;
+  }
+  header h1 {
+    font-size: 16px;
+    font-weight: 650;
+    margin: 0;
+    letter-spacing: .2px;
+    white-space: nowrap;
+  }
+  header h1 span { color: var(--accent); }
+  .group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .group > .label { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+  .dim-field { display: flex; align-items: center; gap: 4px; }
+  .dim-field label { color: var(--muted); font-size: 12px; }
+  input[type="number"], input[type="text"] {
+    font: inherit;
+    border: 1px solid var(--line-strong);
+    border-radius: 7px;
+    padding: 5px 7px;
+    background: #fff;
+    color: var(--ink);
+    outline: none;
+  }
+  input[type="number"] { width: 62px; }
+  input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  .seg {
+    display: inline-flex;
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .seg button {
+    border: none;
+    background: #fff;
+    padding: 6px 12px;
+    font: inherit;
+    font-weight: 550;
+    color: var(--muted);
+    cursor: pointer;
+    border-left: 1px solid var(--line);
+  }
+  .seg button:first-child { border-left: none; }
+  .seg button.active { background: var(--accent); color: #fff; }
+
+  .toggle { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; user-select: none; }
+  .toggle input { display: none; }
+  .switch {
+    width: 36px; height: 20px; border-radius: 999px; background: var(--line-strong);
+    position: relative; transition: background .15s; flex: none;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+    background: #fff; border-radius: 50%; transition: transform .15s; box-shadow: var(--shadow);
+  }
+  .toggle input:checked + .switch { background: var(--accent); }
+  .toggle input:checked + .switch::after { transform: translateX(16px); }
+  .toggle span { font-size: 13px; color: var(--ink); }
+
+  .btn {
+    font: inherit; font-weight: 550; cursor: pointer;
+    border: 1px solid var(--line-strong); background: #fff; color: var(--ink);
+    border-radius: 8px; padding: 6px 11px;
+  }
+  .btn:hover { background: #f3f4f6; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: #245fd6; }
+  .btn.ghost-danger { color: var(--danger); border-color: transparent; background: transparent; padding: 4px 6px; }
+  .btn.ghost-danger:hover { background: #fdecec; }
+
+  /* ---------- Layout ---------- */
+  main { flex: 1; display: flex; min-height: 0; }
+  aside {
+    width: 290px; flex: none; background: var(--panel); border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .sidebar-scroll { overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 16px; }
+  .card { border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
+  .card h2 {
+    font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
+    margin: 0; padding: 11px 13px; border-bottom: 1px solid var(--line); font-weight: 650;
+  }
+  .card .body { padding: 12px 13px; display: flex; flex-direction: column; gap: 10px; }
+
+  .add-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .add-grid .dim-field { flex-direction: column; align-items: stretch; gap: 3px; }
+  .add-grid .dim-field label { font-size: 11px; font-weight: 600; }
+  .add-grid input { width: 100%; }
+  .full { grid-column: 1 / -1; }
+  .full input { width: 100%; }
+
+  /* item list */
+  .items { display: flex; flex-direction: column; gap: 0; }
+  .empty { color: var(--muted); font-size: 13px; padding: 6px 2px; }
+  .item-row {
+    display: flex; align-items: center; gap: 9px; padding: 8px 6px; border-radius: 8px; cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .item-row:hover { background: #f7f8fa; }
+  .item-row.selected { background: var(--accent-soft); border-color: #cfe0fd; }
+  .swatch { width: 16px; height: 16px; border-radius: 4px; flex: none; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+  .item-meta { flex: 1; min-width: 0; }
+  .item-meta .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-meta .dims { color: var(--muted); font-size: 12px; }
+
+  /* properties */
+  .prop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+  .prop-grid .dim-field { flex-direction: column; align-items: stretch; gap: 3px; }
+  .prop-grid label { font-size: 11px; color: var(--muted); font-weight: 600; }
+  .prop-grid input { width: 100%; }
+  .color-row { display: flex; gap: 6px; flex-wrap: wrap; }
+  .color-dot { width: 20px; height: 20px; border-radius: 5px; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.15); }
+  .color-dot.active { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--accent); }
+  .prop-actions { display: flex; gap: 8px; }
+  .prop-actions .btn { flex: 1; }
+
+  /* ---------- Views ---------- */
+  .views { flex: 1; display: flex; min-width: 0; min-height: 0; }
+  .view {
+    flex: 1; min-width: 0; min-height: 0; position: relative; display: flex; flex-direction: column;
+    border-left: 1px solid var(--line);
+  }
+  .view:first-child { border-left: none; }
+  .view.hidden { display: none; }
+  .view-head {
+    position: absolute; top: 10px; left: 12px; z-index: 5;
+    font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); background: rgba(255,255,255,.78); padding: 3px 8px; border-radius: 6px;
+    backdrop-filter: blur(3px); pointer-events: none;
+  }
+  .hint {
+    position: absolute; bottom: 10px; left: 12px; z-index: 5; pointer-events: none;
+    font-size: 11px; color: var(--muted); background: rgba(255,255,255,.78); padding: 3px 8px; border-radius: 6px;
+  }
+
+  /* 2D */
+  #view2d { background: #eef1f4; overflow: hidden; }
+  #stage2d { flex: 1; position: relative; overflow: auto; }
+  #canvas2d { position: relative; margin: auto; }
+  #grid { position: absolute; inset: 0; }
+  #floor { position: absolute; }
+  .piece {
+    position: absolute; border-radius: 3px; cursor: grab; user-select: none; touch-action: none;
+    display: flex; align-items: center; justify-content: center; overflow: visible;
+    box-shadow: inset 0 0 0 1.5px rgba(0,0,0,.18);
+    color: #11161f;
+  }
+  .piece.dragging { cursor: grabbing; }
+  .piece .plabel {
+    font-size: 11px; font-weight: 650; text-align: center; line-height: 1.15; padding: 2px 3px;
+    pointer-events: none; text-shadow: 0 1px 0 rgba(255,255,255,.35);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+  }
+  .piece .psize { font-size: 10px; font-weight: 500; opacity: .8; }
+  .piece.selected { box-shadow: inset 0 0 0 2px var(--accent), 0 0 0 1px rgba(47,111,237,.25); z-index: 50; }
+  .piece.bad { box-shadow: inset 0 0 0 2px var(--danger); }
+  .piece.selected.bad { box-shadow: inset 0 0 0 2px var(--danger), 0 0 0 2px rgba(229,72,77,.3); }
+  .front-mark { position: absolute; background: rgba(0,0,0,.45); border-radius: 2px; }
+  .handle {
+    position: absolute; width: 13px; height: 13px; background: #fff; border: 2px solid var(--accent);
+    border-radius: 3px; right: -7px; bottom: -7px; cursor: nwse-resize; z-index: 60; touch-action: none;
+  }
+  .rotate-btn {
+    position: absolute; top: -11px; right: -11px; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--accent); color: #fff; border: 2px solid #fff; cursor: pointer; z-index: 60;
+    display: flex; align-items: center; justify-content: center; font-size: 13px; box-shadow: var(--shadow);
+    touch-action: none;
+  }
+
+  /* 3D */
+  #view3d { background: linear-gradient(#dfe6ee, #eef1f4); }
+  #stage3d { flex: 1; position: relative; }
+  #c3d { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+  #c3d:active { cursor: grabbing; }
+
+  /* warnings */
+  #warnbar {
+    position: absolute; top: 10px; right: 12px; z-index: 6; max-width: 60%;
+    display: flex; flex-direction: column; gap: 4px; align-items: flex-end;
+  }
+  .warn-pill {
+    font-size: 12px; font-weight: 550; padding: 4px 9px; border-radius: 999px;
+    background: #fff3ec; color: var(--warn); border: 1px solid #f6d3c1; box-shadow: var(--shadow);
+  }
+  .warn-pill.overlap { background: #fdecec; color: var(--danger); border-color: #f3c6c8; }
+
+  .footer-note { color: var(--muted); font-size: 11px; padding: 0 2px; line-height: 1.5; }
+
+  @media (max-width: 820px) {
+    aside { width: 240px; }
+    .views.both .view { min-width: 0; }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1>Room&nbsp;<span>Layout&nbsp;Planner</span></h1>
+
+    <div class="group">
+      <span class="label">Room (m)</span>
+      <div class="dim-field"><label>W</label><input id="roomW" type="number" min="1" max="40" step="0.1" value="5"></div>
+      <div class="dim-field"><label>L</label><input id="roomL" type="number" min="1" max="40" step="0.1" value="4"></div>
+      <div class="dim-field"><label>H</label><input id="roomH" type="number" min="1.5" max="6" step="0.1" value="2.7"></div>
+    </div>
+
+    <div class="group">
+      <span class="label">View</span>
+      <div class="seg" id="viewSeg">
+        <button data-view="2d">2D</button>
+        <button data-view="3d">3D</button>
+        <button data-view="both" class="active">Both</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <label class="toggle"><input type="checkbox" id="snapToggle" checked><span class="switch"></span><span>Snap to grid</span></label>
+      <label class="toggle"><input type="checkbox" id="gridToggle" checked><span class="switch"></span><span>Grid</span></label>
+    </div>
+
+    <div class="group" style="margin-left:auto">
+      <button class="btn" id="resetBtn">Reset</button>
+    </div>
+  </header>
+
+  <main>
+    <aside>
+      <div class="sidebar-scroll">
+        <!-- Add furniture -->
+        <div class="card">
+          <h2>Add furniture</h2>
+          <div class="body">
+            <div class="add-grid">
+              <div class="dim-field full"><label>Name</label><input type="text" id="addName" placeholder="e.g. Sofa" value=""></div>
+              <div class="dim-field"><label>Width (m)</label><input type="number" id="addW" min="0.1" step="0.1" value="2.1"></div>
+              <div class="dim-field"><label>Depth (m)</label><input type="number" id="addD" min="0.1" step="0.1" value="0.9"></div>
+              <div class="dim-field"><label>Height (m)</label><input type="number" id="addH" min="0.1" step="0.1" value="0.8"></div>
+            </div>
+            <div class="color-row" id="addColors"></div>
+            <button class="btn primary" id="addBtn">+ Add to room</button>
+          </div>
+        </div>
+
+        <!-- Selected item -->
+        <div class="card" id="propCard" style="display:none">
+          <h2>Selected item</h2>
+          <div class="body" id="propBody"></div>
+        </div>
+
+        <!-- Item list -->
+        <div class="card">
+          <h2>Items <span id="itemCount" style="color:var(--muted);font-weight:500"></span></h2>
+          <div class="body">
+            <div class="items" id="itemList"></div>
+          </div>
+        </div>
+
+        <div class="footer-note">
+          Drag pieces to move. Use the ⟳ button to rotate 90°, or the corner handle to resize.
+          Everything is in meters and stays in sync between 2D and 3D.
+        </div>
+      </div>
+    </aside>
+
+    <div class="views both" id="views">
+      <!-- 2D -->
+      <section class="view" id="view2d">
+        <div class="view-head">2D · Top-down</div>
+        <div id="warnbar"></div>
+        <div id="stage2d">
+          <div id="canvas2d">
+            <svg id="grid"></svg>
+            <div id="floor"></div>
+          </div>
+        </div>
+        <div class="hint">Click a piece to select · drag to move · ⟳ rotate · corner = resize</div>
+      </section>
+
+      <!-- 3D -->
+      <section class="view" id="view3d">
+        <div class="view-head">3D · Perspective</div>
+        <div id="stage3d"><canvas id="c3d"></canvas></div>
+        <div class="hint">Drag = orbit · Right-drag / Shift-drag = pan · Scroll = zoom</div>
+      </section>
+    </div>
+  </main>
+
+<script>
+"use strict";
+/* ============================================================
+   Room Layout Planner — single-file, no dependencies.
+   Coordinate model (meters):
+     - Room origin (0,0) at top-left of the 2D plan.
+     - x  -> width  (left→right)
+     - z  -> length (top→bottom in 2D / depth into screen in 3D)
+     - y  -> up (3D height only)
+   Item position (x,z) = center of the footprint, in meters.
+   rot in {0,90,180,270}. Footprint swaps w/d at 90/270.
+   ============================================================ */
+
+const PALETTE = ["#3b82c4","#e07a5f","#3fa796","#e0b153","#8b6fc9",
+                 "#d36ba6","#4aa3df","#5cb85c","#d9774a","#7a8896"];
+
+const STORE_KEY = "roomPlanner.v2";
+
+let nextColor = 0;
+const uid = () => Math.random().toString(36).slice(2, 9);
+
+const state = {
+  room: { width: 5, length: 4, height: 2.7 },
+  items: [],
+  selectedId: null,
+  snap: true,
+  grid: true,
+  gridStep: 0.5,
+  view: "both"
+};
+
+/* ---------- persistence ---------- */
+function save() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      room: state.room, items: state.items.map(stripItem),
+      snap: state.snap, grid: state.grid, view: state.view
+    }));
+  } catch (e) {}
+}
+function stripItem(it){ const {_el, ...rest} = it; return rest; }
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORE_KEY);
+    if (!raw) return false;
+    const d = JSON.parse(raw);
+    if (!d || !d.room) return false;
+    state.room = d.room;
+    state.items = (d.items||[]).map(it => ({ ...it }));
+    state.snap = d.snap !== false;
+    state.grid = d.grid !== false;
+    state.view = d.view || "both";
+    nextColor = state.items.length;
+    return true;
+  } catch (e) { return false; }
+}
+
+function seed() {
+  state.room = { width: 5, length: 4, height: 2.7 };
+  state.items = [];
+  nextColor = 0;
+  addItem("Sofa", 2.1, 0.9, 0.8, 2.5, 0.55, 180);
+  addItem("Coffee table", 1.1, 0.6, 0.45, 2.5, 1.7);
+  addItem("TV unit", 1.4, 0.4, 0.5, 2.5, 3.7);
+  addItem("Armchair", 0.85, 0.85, 0.8, 0.85, 1.3, 90);
+  addItem("Bookshelf", 0.8, 0.3, 1.8, 0.45, 3.2);
+  state.selectedId = null;
+}
+
+/* ---------- item helpers ---------- */
+function addItem(name, w, d, h, x, z, rot=0, color) {
+  const it = {
+    id: uid(),
+    name: name || "Item",
+    w: +w, d: +d, h: +h,
+    x: x != null ? +x : state.room.width/2,
+    z: z != null ? +z : state.room.length/2,
+    rot: rot|0,
+    color: color || PALETTE[nextColor++ % PALETTE.length]
+  };
+  state.items.push(it);
+  return it;
+}
+function getItem(id){ return state.items.find(i => i.id === id); }
+
+// footprint (axis-aligned) given rotation
+function footprint(it){
+  return (it.rot % 180 === 0) ? { w: it.w, d: it.d } : { w: it.d, d: it.w };
+}
+function bounds(it){
+  const f = footprint(it);
+  return { x0: it.x - f.w/2, x1: it.x + f.w/2, z0: it.z - f.d/2, z1: it.z + f.d/2, w: f.w, d: f.d };
+}
+function clampToRoom(it){
+  const f = footprint(it);
+  const { width:W, length:L } = state.room;
+  if (f.w <= W) it.x = Math.min(W - f.w/2, Math.max(f.w/2, it.x));
+  else it.x = W/2;
+  if (f.d <= L) it.z = Math.min(L - f.d/2, Math.max(f.d/2, it.z));
+  else it.z = L/2;
+}
+
+/* ---------- validation ---------- */
+function computeIssues(){
+  const { width:W, length:L } = state.room;
+  const eps = 1e-3;
+  const oob = new Set(), over = new Set();
+  const msgs = [];
+  for (const it of state.items){
+    const b = bounds(it);
+    if (b.x0 < -eps || b.z0 < -eps || b.x1 > W+eps || b.z1 > L+eps){
+      oob.add(it.id);
+    }
+  }
+  for (let i=0;i<state.items.length;i++){
+    for (let j=i+1;j<state.items.length;j++){
+      const a = bounds(state.items[i]), b = bounds(state.items[j]);
+      const ox = Math.min(a.x1,b.x1) - Math.max(a.x0,b.x0);
+      const oz = Math.min(a.z1,b.z1) - Math.max(a.z0,b.z0);
+      if (ox > eps && oz > eps){ over.add(state.items[i].id); over.add(state.items[j].id);
+        msgs.push({type:"overlap", text:`${state.items[i].name} overlaps ${state.items[j].name}`});
+      }
+    }
+  }
+  for (const it of state.items) if (oob.has(it.id)) msgs.push({type:"oob", text:`${it.name} is outside the room`});
+  return { oob, over, msgs };
+}
+
+/* ============================================================
+   2D VIEW
+   ============================================================ */
+const stage2d = document.getElementById("stage2d");
+const canvas2d = document.getElementById("canvas2d");
+const gridSvg = document.getElementById("grid");
+const floorEl = document.getElementById("floor");
+const MARGIN = 34;          // px around plan for measurement labels
+let scale2d = 60;           // px per meter (recomputed to fit)
+const SVGNS = "http://www.w3.org/2000/svg";
+
+function fit2D(){
+  const availW = stage2d.clientWidth  - MARGIN*2 - 16;
+  const availH = stage2d.clientHeight - MARGIN*2 - 16;
+  const { width:W, length:L } = state.room;
+  if (availW <= 0 || availH <= 0) return;
+  scale2d = Math.max(18, Math.min(availW / W, availH / L));
+  const planW = W * scale2d, planL = L * scale2d;
+  canvas2d.style.width  = (planW + MARGIN*2) + "px";
+  canvas2d.style.height = (planL + MARGIN*2) + "px";
+  floorEl.style.left = MARGIN + "px";
+  floorEl.style.top  = MARGIN + "px";
+  floorEl.style.width  = planW + "px";
+  floorEl.style.height = planL + "px";
+}
+
+function drawGrid(){
+  const { width:W, length:L } = state.room;
+  const planW = W*scale2d, planL = L*scale2d;
+  const totW = planW + MARGIN*2, totL = planL + MARGIN*2;
+  gridSvg.setAttribute("width", totW);
+  gridSvg.setAttribute("height", totL);
+  gridSvg.setAttribute("viewBox", `0 0 ${totW} ${totL}`);
+  const X = m => MARGIN + m*scale2d, Z = m => MARGIN + m*scale2d;
+  let s = "";
+  // floor fill
+  s += `<rect x="${MARGIN}" y="${MARGIN}" width="${planW}" height="${planL}" fill="#ffffff" stroke="none"/>`;
+  if (state.grid){
+    const step = state.gridStep;
+    // minor + major vertical lines (x)
+    for (let m=0; m<=W+1e-6; m+=step){
+      const major = Math.abs(m/1 - Math.round(m/1)) < 1e-6;
+      s += `<line x1="${X(m)}" y1="${MARGIN}" x2="${X(m)}" y2="${MARGIN+planL}" stroke="${major?'#cdd5de':'#e9edf1'}" stroke-width="${major?1:1}"/>`;
+    }
+    for (let m=0; m<=L+1e-6; m+=step){
+      const major = Math.abs(m/1 - Math.round(m/1)) < 1e-6;
+      s += `<line x1="${MARGIN}" y1="${Z(m)}" x2="${MARGIN+planW}" y2="${Z(m)}" stroke="${major?'#cdd5de':'#e9edf1'}" stroke-width="1"/>`;
+    }
+  }
+  // room outline
+  s += `<rect x="${MARGIN}" y="${MARGIN}" width="${planW}" height="${planL}" fill="none" stroke="#9aa6b2" stroke-width="2"/>`;
+  // edge measurement labels (every 1 m)
+  const labStyle = `font-size="11" fill="#6b7280" font-family="ui-sans-serif,system-ui"`;
+  for (let m=0; m<=W+1e-6; m+=1){
+    s += `<text x="${X(m)}" y="${MARGIN-10}" text-anchor="middle" ${labStyle}>${trimNum(m)}</text>`;
+    s += `<line x1="${X(m)}" y1="${MARGIN-6}" x2="${X(m)}" y2="${MARGIN-2}" stroke="#b6bfc9"/>`;
+  }
+  for (let m=0; m<=L+1e-6; m+=1){
+    s += `<text x="${MARGIN-9}" y="${Z(m)+4}" text-anchor="end" ${labStyle}>${trimNum(m)}</text>`;
+    s += `<line x1="${MARGIN-6}" y1="${Z(m)}" x2="${MARGIN-2}" y2="${Z(m)}" stroke="#b6bfc9"/>`;
+  }
+  // dimension captions
+  s += `<text x="${MARGIN+planW/2}" y="${MARGIN+planL+22}" text-anchor="middle" font-size="12" font-weight="600" fill="#4b5563">${trimNum(W)} m</text>`;
+  s += `<text x="${MARGIN+planW+18}" y="${MARGIN+planL/2}" text-anchor="middle" font-size="12" font-weight="600" fill="#4b5563" transform="rotate(90 ${MARGIN+planW+18} ${MARGIN+planL/2})">${trimNum(L)} m</text>`;
+  // "m" unit near origin
+  s += `<text x="${MARGIN-9}" y="${MARGIN-10}" text-anchor="end" font-size="10" fill="#9aa6b2">m</text>`;
+  gridSvg.innerHTML = s;
+}
+
+function trimNum(n){ return (Math.round(n*100)/100).toString(); }
+
+/* ----- pieces ----- */
+function buildPiece(it){
+  const el = document.createElement("div");
+  el.className = "piece";
+  el.dataset.id = it.id;
+  el.innerHTML =
+    `<div style="display:flex;flex-direction:column;align-items:center;pointer-events:none">
+       <div class="plabel"></div><div class="psize"></div>
+     </div>
+     <div class="front-mark"></div>
+     <div class="rotate-btn" title="Rotate 90°">⟳</div>
+     <div class="handle" title="Resize"></div>`;
+  floorEl.appendChild(el);
+  it._el = el;
+  attachPieceEvents(it, el);
+  return el;
+}
+
+function layoutPiece(it){
+  const el = it._el; if (!el) return;
+  const f = footprint(it);
+  const b = bounds(it);
+  const left = b.x0 * scale2d, top = b.z0 * scale2d;
+  el.style.left = left + "px";
+  el.style.top = top + "px";
+  el.style.width  = f.w*scale2d + "px";
+  el.style.height = f.d*scale2d + "px";
+  el.style.background = hexToRgba(it.color, 0.5);
+  el.querySelector(".plabel").textContent = it.name;
+  el.querySelector(".psize").textContent = `${trimNum(it.w)}×${trimNum(it.d)} m`;
+  // front marker — indicates facing direction (the +depth side, rotated)
+  const fm = el.querySelector(".front-mark");
+  const t = 4;
+  const wpx = f.w*scale2d, dpx = f.d*scale2d;
+  // local "front" is +z (bottom) at rot 0; rotate clockwise with rot
+  const side = it.rot % 360;
+  fm.style.cssText = "position:absolute;background:rgba(0,0,0,.4);border-radius:2px;";
+  if (side === 0){ fm.style.left="3px"; fm.style.right="3px"; fm.style.bottom="2px"; fm.style.height=t+"px"; }
+  else if (side === 90){ fm.style.top="3px"; fm.style.bottom="3px"; fm.style.left="2px"; fm.style.width=t+"px"; }
+  else if (side === 180){ fm.style.left="3px"; fm.style.right="3px"; fm.style.top="2px"; fm.style.height=t+"px"; }
+  else { fm.style.top="3px"; fm.style.bottom="3px"; fm.style.right="2px"; fm.style.width=t+"px"; }
+}
+
+function render2D(){
+  fit2D();
+  drawGrid();
+  // remove orphan els
+  const ids = new Set(state.items.map(i=>i.id));
+  Array.from(floorEl.querySelectorAll(".piece")).forEach(el=>{
+    if (!ids.has(el.dataset.id)) el.remove();
+  });
+  const { oob, over } = computeIssues();
+  for (const it of state.items){
+    if (!it._el || !it._el.isConnected) buildPiece(it);
+    layoutPiece(it);
+    const bad = oob.has(it.id) || over.has(it.id);
+    it._el.classList.toggle("bad", bad);
+    it._el.classList.toggle("selected", it.id === state.selectedId);
+  }
+  updateWarnings();
+}
+
+function pointerMeters(e){
+  const r = floorEl.getBoundingClientRect();
+  return { x: (e.clientX - r.left)/scale2d, z: (e.clientY - r.top)/scale2d };
+}
+function snapVal(v){ return state.snap ? Math.round(v/state.gridStep)*state.gridStep : v; }
+
+function attachPieceEvents(it, el){
+  // select on pointerdown
+  el.addEventListener("pointerdown", (e)=>{
+    if (e.target.classList.contains("handle") || e.target.classList.contains("rotate-btn")) return;
+    e.preventDefault();
+    select(it.id);
+    el.setPointerCapture(e.pointerId);
+    el.classList.add("dragging");
+    const p = pointerMeters(e);
+    const off = { x: p.x - it.x, z: p.z - it.z };
+    const move = (ev)=>{
+      const m = pointerMeters(ev);
+      const f = footprint(it);
+      let cx = m.x - off.x, cz = m.z - off.z;
+      // snap the top-left corner to grid
+      let x0 = cx - f.w/2, z0 = cz - f.d/2;
+      x0 = snapVal(x0); z0 = snapVal(z0);
+      it.x = x0 + f.w/2; it.z = z0 + f.d/2;
+      layoutPiece(it); liveValidate(); render3D();
+    };
+    const up = (ev)=>{
+      el.releasePointerCapture(e.pointerId);
+      el.classList.remove("dragging");
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      render2D(); renderProps(); save();
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  });
+
+  // rotate
+  el.querySelector(".rotate-btn").addEventListener("pointerdown",(e)=>{
+    e.preventDefault(); e.stopPropagation();
+    select(it.id);
+    it.rot = (it.rot + 90) % 360;
+    clampToRoom(it);
+    render2D(); render3D(); renderProps(); save();
+  });
+
+  // resize (anchor = top-left corner in screen space)
+  el.querySelector(".handle").addEventListener("pointerdown",(e)=>{
+    e.preventDefault(); e.stopPropagation();
+    select(it.id);
+    const handle = e.target;
+    handle.setPointerCapture(e.pointerId);
+    const b = bounds(it);
+    const anchorX = b.x0, anchorZ = b.z0; // fixed corner
+    const move = (ev)=>{
+      const m = pointerMeters(ev);
+      let brX = snapVal(m.x), brZ = snapVal(m.z);
+      let fw = Math.max(0.1, brX - anchorX);
+      let fd = Math.max(0.1, brZ - anchorZ);
+      // map footprint back to real w/d depending on rotation
+      if (it.rot % 180 === 0){ it.w = round1(fw); it.d = round1(fd); }
+      else { it.d = round1(fw); it.w = round1(fd); }
+      const f = footprint(it);
+      it.x = anchorX + f.w/2; it.z = anchorZ + f.d/2;
+      layoutPiece(it); liveValidate(); render3D(); renderProps();
+    };
+    const up = (ev)=>{
+      handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      render2D(); renderProps(); save();
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  });
+}
+function round1(v){ return Math.round(v*100)/100; }
+
+function liveValidate(){
+  const { oob, over } = computeIssues();
+  for (const it of state.items){
+    if (!it._el) continue;
+    it._el.classList.toggle("bad", oob.has(it.id) || over.has(it.id));
+  }
+  updateWarnings();
+}
+
+/* warnings */
+const warnbar = document.getElementById("warnbar");
+function updateWarnings(){
+  const { msgs } = computeIssues();
+  if (!msgs.length){ warnbar.innerHTML = ""; return; }
+  // de-dup
+  const seen = new Set();
+  warnbar.innerHTML = msgs.filter(m=>{ const k=m.type+m.text; if(seen.has(k))return false; seen.add(k); return true;})
+    .slice(0,6)
+    .map(m=>`<div class="warn-pill ${m.type==='overlap'?'overlap':''}">⚠ ${escapeHtml(m.text)}</div>`).join("");
+}
+
+/* ============================================================
+   SIDEBAR
+   ============================================================ */
+const itemList = document.getElementById("itemList");
+const itemCount = document.getElementById("itemCount");
+const propCard = document.getElementById("propCard");
+const propBody = document.getElementById("propBody");
+const addColors = document.getElementById("addColors");
+let addColor = PALETTE[0];
+
+function renderAddColors(){
+  addColors.innerHTML = PALETTE.map(c =>
+    `<div class="color-dot ${c===addColor?'active':''}" data-c="${c}" style="background:${c}"></div>`).join("");
+  addColors.querySelectorAll(".color-dot").forEach(d=>{
+    d.onclick = ()=>{ addColor = d.dataset.c; renderAddColors(); };
+  });
+}
+
+function renderList(){
+  itemCount.textContent = state.items.length ? `(${state.items.length})` : "";
+  if (!state.items.length){ itemList.innerHTML = `<div class="empty">No furniture yet. Add a piece above.</div>`; return; }
+  itemList.innerHTML = "";
+  for (const it of state.items){
+    const row = document.createElement("div");
+    row.className = "item-row" + (it.id===state.selectedId ? " selected" : "");
+    row.innerHTML =
+      `<div class="swatch" style="background:${it.color}"></div>
+       <div class="item-meta">
+         <div class="name">${escapeHtml(it.name)}</div>
+         <div class="dims">${trimNum(it.w)} × ${trimNum(it.d)} × ${trimNum(it.h)} m</div>
+       </div>
+       <button class="btn ghost-danger" title="Delete">✕</button>`;
+    row.addEventListener("click",(e)=>{ if (e.target.tagName==="BUTTON") return; select(it.id); });
+    row.querySelector("button").addEventListener("click",(e)=>{ e.stopPropagation(); deleteItem(it.id); });
+    itemList.appendChild(row);
+  }
+}
+
+function renderProps(){
+  const it = getItem(state.selectedId);
+  if (!it){ propCard.style.display = "none"; return; }
+  propCard.style.display = "";
+  propBody.innerHTML =
+    `<div class="dim-field"><label>Name</label><input type="text" id="pName" value="${escapeHtml(it.name)}"></div>
+     <div class="prop-grid">
+       <div class="dim-field"><label>Width (m)</label><input type="number" id="pW" min="0.1" step="0.1" value="${trimNum(it.w)}"></div>
+       <div class="dim-field"><label>Depth (m)</label><input type="number" id="pD" min="0.1" step="0.1" value="${trimNum(it.d)}"></div>
+       <div class="dim-field"><label>Height (m)</label><input type="number" id="pH" min="0.1" step="0.1" value="${trimNum(it.h)}"></div>
+       <div class="dim-field"><label>Rotation</label><input type="text" id="pRot" value="${it.rot}°" readonly style="background:#f6f7f9"></div>
+       <div class="dim-field"><label>Pos X (m)</label><input type="number" id="pX" step="0.1" value="${trimNum(it.x)}"></div>
+       <div class="dim-field"><label>Pos Z (m)</label><input type="number" id="pZ" step="0.1" value="${trimNum(it.z)}"></div>
+     </div>
+     <div class="color-row" id="pColors"></div>
+     <div class="prop-actions">
+       <button class="btn" id="pRotate">⟳ Rotate 90°</button>
+       <button class="btn" id="pDelete" style="color:var(--danger)">Delete</button>
+     </div>`;
+
+  const upd = (patch, full=false)=>{ Object.assign(it, patch); clampToRoom(it); if(full){render2D();} else {layoutPiece(it); liveValidate(); } render3D(); renderList(); save(); };
+
+  propBody.querySelector("#pName").addEventListener("input", e=>{ it.name=e.target.value; layoutPiece(it); renderList(); save(); });
+  const num = (id, key)=>{ propBody.querySelector(id).addEventListener("change", e=>{ let v=parseFloat(e.target.value); if(isNaN(v))return; if(key==='w'||key==='d'||key==='h') v=Math.max(0.1,v); upd({[key]:round1(v)}, true); renderProps(); }); };
+  num("#pW","w"); num("#pD","d"); num("#pH","h"); num("#pX","x"); num("#pZ","z");
+  propBody.querySelector("#pRotate").onclick = ()=>{ it.rot=(it.rot+90)%360; clampToRoom(it); render2D(); render3D(); renderProps(); save(); };
+  propBody.querySelector("#pDelete").onclick = ()=> deleteItem(it.id);
+
+  const pc = propBody.querySelector("#pColors");
+  pc.innerHTML = PALETTE.map(c=>`<div class="color-dot ${c===it.color?'active':''}" data-c="${c}" style="background:${c}"></div>`).join("");
+  pc.querySelectorAll(".color-dot").forEach(d=> d.onclick=()=>{ it.color=d.dataset.c; render2D(); render3D(); renderList(); renderProps(); save(); });
+}
+
+function select(id){
+  state.selectedId = id;
+  // update 2D highlight without full rebuild
+  for (const it of state.items) it._el && it._el.classList.toggle("selected", it.id===id);
+  renderList(); renderProps(); render3D();
+}
+
+function deleteItem(id){
+  const it = getItem(id);
+  if (it && it._el) it._el.remove();
+  state.items = state.items.filter(i=>i.id!==id);
+  if (state.selectedId===id) state.selectedId=null;
+  render2D(); render3D(); renderList(); renderProps(); save();
+}
+
+/* ============================================================
+   3D VIEW  (custom canvas renderer: perspective + painter's algo)
+   ============================================================ */
+const c3d = document.getElementById("c3d");
+const ctx = c3d.getContext("2d");
+const stage3d = document.getElementById("stage3d");
+let DPR = Math.min(window.devicePixelRatio||1, 2);
+
+const cam = { az: 0.9, el: 0.62, r: 9, tx: 0, ty: 0.9, tz: 0, fov: 50*Math.PI/180 };
+
+function resetCamera(){
+  const { width:W, length:L } = state.room;
+  cam.az = 0.9; cam.el = 0.62;
+  cam.r = Math.max(W, L) * 1.55 + 2;
+  cam.tx = 0; cam.ty = state.room.height*0.35; cam.tz = 0;
+}
+
+function resize3D(){
+  DPR = Math.min(window.devicePixelRatio||1, 2);
+  const w = stage3d.clientWidth, h = stage3d.clientHeight;
+  c3d.width = Math.max(1, w*DPR); c3d.height = Math.max(1, h*DPR);
+  c3d.style.width = w+"px"; c3d.style.height = h+"px";
+}
+
+// vector helpers
+const sub=(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]];
+const dot=(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2];
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+const norm=(a)=>{const l=Math.hypot(a[0],a[1],a[2])||1;return [a[0]/l,a[1]/l,a[2]/l];};
+
+function camBasis(){
+  const ce=Math.cos(cam.el), se=Math.sin(cam.el), ca=Math.cos(cam.az), sa=Math.sin(cam.az);
+  const eye=[cam.tx + cam.r*ce*ca, cam.ty + cam.r*se, cam.tz + cam.r*ce*sa];
+  const target=[cam.tx,cam.ty,cam.tz];
+  const f=norm(sub(target,eye));         // forward
+  const right=norm(cross(f,[0,1,0]));
+  const up=cross(right,f);
+  return {eye,f,right,up};
+}
+
+function project(p, B, W, H, focal){
+  const rel=sub(p,B.eye);
+  const cz=dot(rel,B.f);                 // depth in front of camera
+  const cx=dot(rel,B.right), cy=dot(rel,B.up);
+  return { x: W/2 + (cx/cz)*focal, y: H/2 - (cy/cz)*focal, z: cz };
+}
+
+// Sutherland–Hodgman clip of a face (array of world pts) against near plane in camera space.
+function clipNear(pts, B, near){
+  const cs = pts.map(p=>{ const rel=sub(p,B.eye); return { c:[dot(rel,B.right),dot(rel,B.up),dot(rel,B.f)], w:p }; });
+  const out=[];
+  for (let i=0;i<cs.length;i++){
+    const A=cs[i], Bp=cs[(i+1)%cs.length];
+    const aIn=A.c[2]>=near, bIn=Bp.c[2]>=near;
+    if (aIn) out.push(A);
+    if (aIn!==bIn){
+      const t=(near-A.c[2])/(Bp.c[2]-A.c[2]);
+      out.push({ c:[A.c[0]+t*(Bp.c[0]-A.c[0]), A.c[1]+t*(Bp.c[1]-A.c[1]), near], w:null });
+    }
+  }
+  return out; // camera-space verts
+}
+
+function shade(hex, mul){
+  const c = hexToRgb(hex);
+  return `rgb(${clamp255(c.r*mul)},${clamp255(c.g*mul)},${clamp255(c.b*mul)})`;
+}
+const clamp255=v=>Math.max(0,Math.min(255,Math.round(v)));
+
+function render3D(){
+  const W = c3d.width, H = c3d.height;
+  if (W<2||H<2) return;
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.clearRect(0,0,W,H);
+  // background gradient
+  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,"#dde5ee"); g.addColorStop(1,"#eef1f4");
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+
+  const B = camBasis();
+  const focal = (H/2)/Math.tan(cam.fov/2);
+  const near = 0.05;
+  const light = norm([0.4,1,0.55]);
+  const { width:RW, length:RL, height:RH } = state.room;
+  const hw=RW/2, hl=RL/2;
+
+  // collect faces: {pts:[world..], normal, color, mul, kind, depth, stroke}
+  const faces=[];
+  const eye=B.eye;
+  function addFace(pts, normal, baseColor, kind, opts={}){
+    // back-face cull (skip faces pointing away from camera)
+    const center=[(pts[0][0]+pts[1][0]+pts[2][0]+pts[3][0])/4,
+                  (pts[0][1]+pts[1][1]+pts[2][1]+pts[3][1])/4,
+                  (pts[0][2]+pts[1][2]+pts[2][2]+pts[3][2])/4];
+    if (opts.cull!==false){
+      if (dot(sub(center,eye), normal) > 0) return; // facing away
+    }
+    const mul = 0.55 + 0.45*Math.max(0, dot(normal, light));
+    let depth = Math.hypot(center[0]-eye[0],center[1]-eye[1],center[2]-eye[2]);
+    faces.push({pts, color: shade(baseColor, mul), kind, depth, stroke: opts.stroke, fill: opts.fill, selected: opts.selected});
+  }
+
+  // ----- floor -----
+  faces.push({
+    pts:[[-hw,0,-hl],[hw,0,-hl],[hw,0,hl],[-hw,0,hl]],
+    color:"#eef1f5", kind:"floor", stroke:"#d4dae1",
+    depth: Math.hypot(0-eye[0],0-eye[1],0-eye[2])+9999 // force floor first
+  });
+
+  // ----- walls (inward normals; back-face cull hides near walls) -----
+  const wallColor="#f4f6f8";
+  // wall at z=-hl (north), inward normal +z
+  addFace([[-hw,0,-hl],[-hw,RH,-hl],[hw,RH,-hl],[hw,0,-hl]],[0,0,1],wallColor,"wall",{stroke:"#dfe4ea"});
+  // wall at z=+hl (south), inward normal -z
+  addFace([[hw,0,hl],[hw,RH,hl],[-hw,RH,hl],[-hw,0,hl]],[0,0,-1],wallColor,"wall",{stroke:"#dfe4ea"});
+  // wall at x=-hw (west), inward normal +x
+  addFace([[-hw,0,hl],[-hw,RH,hl],[-hw,RH,-hl],[-hw,0,-hl]],[1,0,0],wallColor,"wall",{stroke:"#dfe4ea"});
+  // wall at x=+hw (east), inward normal -x
+  addFace([[hw,0,-hl],[hw,RH,-hl],[hw,RH,hl],[hw,0,hl]],[-1,0,0],wallColor,"wall",{stroke:"#dfe4ea"});
+
+  // ----- furniture boxes -----
+  const { over, oob } = computeIssues();
+  for (const it of state.items){
+    const f = footprint(it);
+    const ex=f.w/2, ez=f.d/2, ey=it.h/2;
+    const cx=it.x-hw, cz=it.z-hl, cy=ey;
+    const sel = it.id===state.selectedId;
+    const bad = over.has(it.id)||oob.has(it.id);
+    const col = bad ? "#e5484d" : it.color;
+    // 8 corners
+    const v=(sx,sy,sz)=>[cx+sx*ex, cy+sy*ey, cz+sz*ez];
+    const p000=v(-1,-1,-1),p100=v(1,-1,-1),p110=v(1,1,-1),p010=v(-1,1,-1);
+    const p001=v(-1,-1,1), p101=v(1,-1,1), p111=v(1,1,1), p011=v(-1,1,1);
+    addFace([p010,p110,p111,p011],[0,1,0],col,"box",{selected:sel}); // top (+y)
+    addFace([p001,p101,p100,p000],[0,-1,0],col,"box",{selected:sel}); // bottom (usually culled from above)
+    addFace([p001,p011,p111,p101],[0,0,1],col,"box",{selected:sel}); // +z (front)
+    addFace([p100,p110,p010,p000],[0,0,-1],col,"box",{selected:sel}); // -z (back)
+    addFace([p101,p111,p110,p100],[1,0,0],col,"box",{selected:sel}); // +x
+    addFace([p000,p010,p011,p001],[-1,0,0],col,"box",{selected:sel}); // -x
+  }
+
+  // sort far -> near
+  faces.sort((a,b)=> b.depth - a.depth);
+
+  // draw faces
+  for (const fa of faces){
+    const clipped = clipNear(fa.pts, B, near);
+    if (clipped.length < 3) continue;
+    ctx.beginPath();
+    for (let i=0;i<clipped.length;i++){
+      const cc=clipped[i].c;
+      const sx=W/2 + (cc[0]/cc[2])*focal;
+      const sy=H/2 - (cc[1]/cc[2])*focal;
+      if (i===0) ctx.moveTo(sx,sy); else ctx.lineTo(sx,sy);
+    }
+    ctx.closePath();
+    ctx.fillStyle = fa.color;
+    ctx.fill();
+    if (fa.kind==="floor"){ ctx.strokeStyle=fa.stroke; ctx.lineWidth=1*DPR; ctx.stroke(); drawFloorGrid(B,W,H,focal,near); }
+    else if (fa.kind==="wall"){ ctx.strokeStyle=fa.stroke; ctx.lineWidth=1*DPR; ctx.stroke(); }
+    else { // box
+      ctx.strokeStyle = fa.selected ? "rgba(47,111,237,1)" : "rgba(0,0,0,.18)";
+      ctx.lineWidth = (fa.selected?2:1)*DPR; ctx.stroke();
+    }
+  }
+
+  // labels (above each box, painter-sorted)
+  const labels=[];
+  for (const it of state.items){
+    const cx=it.x-hw, cz=it.z-hl;
+    const pTop=[cx, it.h+0.06, cz];
+    const pr=project(pTop,B,W,H,focal);
+    if (pr.z>near) labels.push({it, pr});
+  }
+  labels.sort((a,b)=> b.pr.z - a.pr.z);
+  ctx.textAlign="center"; ctx.textBaseline="middle";
+  for (const {it,pr} of labels){
+    const txt = it.name;
+    ctx.font = `${12*DPR}px ui-sans-serif, system-ui, sans-serif`;
+    const tw = ctx.measureText(txt).width;
+    const padX=6*DPR, hgt=18*DPR;
+    ctx.fillStyle="rgba(255,255,255,.92)";
+    roundRect(ctx, pr.x-tw/2-padX, pr.y-hgt/2, tw+padX*2, hgt, 5*DPR);
+    ctx.fill();
+    ctx.strokeStyle="rgba(0,0,0,.12)"; ctx.lineWidth=1*DPR; ctx.stroke();
+    ctx.fillStyle="#1f2430";
+    ctx.fillText(txt, pr.x, pr.y);
+  }
+}
+
+function drawFloorGrid(B,W,H,focal,near){
+  if (!state.grid) return;
+  const { width:RW, length:RL } = state.room;
+  const hw=RW/2, hl=RL/2, step=state.gridStep;
+  ctx.lineWidth = 1*DPR;
+  const seg=(a,b,major)=>{
+    const pa=project(a,B,W,H,focal), pb=project(b,B,W,H,focal);
+    if (pa.z<=near||pb.z<=near) return;
+    ctx.strokeStyle = major ? "rgba(150,166,178,.55)" : "rgba(150,166,178,.28)";
+    ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
+  };
+  for (let m=0;m<=RW+1e-6;m+=step){
+    const major=Math.abs(m-Math.round(m))<1e-6;
+    seg([-hw+m,0.002,-hl],[-hw+m,0.002,hl],major);
+  }
+  for (let m=0;m<=RL+1e-6;m+=step){
+    const major=Math.abs(m-Math.round(m))<1e-6;
+    seg([-hw,0.002,-hl+m],[hw,0.002,-hl+m],major);
+  }
+}
+
+function roundRect(c,x,y,w,h,r){
+  c.beginPath();
+  c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r);
+  c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath();
+}
+
+/* ----- 3D camera controls ----- */
+let drag3d=null;
+c3d.addEventListener("pointerdown",(e)=>{
+  e.preventDefault();
+  c3d.setPointerCapture(e.pointerId);
+  drag3d={ x:e.clientX, y:e.clientY, pan:(e.button===2||e.shiftKey) };
+});
+c3d.addEventListener("contextmenu",e=>e.preventDefault());
+c3d.addEventListener("pointermove",(e)=>{
+  if(!drag3d) return;
+  const dx=e.clientX-drag3d.x, dy=e.clientY-drag3d.y;
+  drag3d.x=e.clientX; drag3d.y=e.clientY;
+  if (drag3d.pan){
+    const B=camBasis();
+    const k=cam.r*0.0016;
+    cam.tx -= (B.right[0]*dx - B.up[0]*dy)*k;
+    cam.ty -= (B.right[1]*dx - B.up[1]*dy)*k;
+    cam.tz -= (B.right[2]*dx - B.up[2]*dy)*k;
+  } else {
+    cam.az += dx*0.008;
+    cam.el += dy*0.008;
+    cam.el = Math.max(0.05, Math.min(Math.PI/2-0.02, cam.el));
+  }
+  render3D();
+});
+c3d.addEventListener("pointerup",(e)=>{ drag3d=null; });
+c3d.addEventListener("pointercancel",()=>{ drag3d=null; });
+c3d.addEventListener("wheel",(e)=>{
+  e.preventDefault();
+  cam.r *= (1 + Math.sign(e.deltaY)*0.1);
+  cam.r = Math.max(1.5, Math.min(60, cam.r));
+  render3D();
+},{passive:false});
+
+/* ============================================================
+   UTIL
+   ============================================================ */
+function hexToRgb(hex){
+  hex=hex.replace("#","");
+  if(hex.length===3) hex=hex.split("").map(c=>c+c).join("");
+  return { r:parseInt(hex.slice(0,2),16), g:parseInt(hex.slice(2,4),16), b:parseInt(hex.slice(4,6),16) };
+}
+function hexToRgba(hex,a){ const c=hexToRgb(hex); return `rgba(${c.r},${c.g},${c.b},${a})`; }
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ============================================================
+   WIRING / CONTROLS
+   ============================================================ */
+function applyView(){
+  const v2=document.getElementById("view2d"), v3=document.getElementById("view3d");
+  const views=document.getElementById("views");
+  v2.classList.toggle("hidden", state.view==="3d");
+  v3.classList.toggle("hidden", state.view==="2d");
+  views.classList.toggle("both", state.view==="both");
+  document.querySelectorAll("#viewSeg button").forEach(b=>b.classList.toggle("active", b.dataset.view===state.view));
+  // re-measure after layout settles
+  requestAnimationFrame(()=>{ fit2D(); render2D(); resize3D(); render3D(); });
+}
+
+document.getElementById("viewSeg").addEventListener("click",(e)=>{
+  const b=e.target.closest("button"); if(!b) return;
+  state.view=b.dataset.view; applyView(); save();
+});
+
+["roomW","roomL","roomH"].forEach(id=>{
+  document.getElementById(id).addEventListener("change",(e)=>{
+    let v=parseFloat(e.target.value);
+    if(isNaN(v)) { e.target.value = id==="roomW"?state.room.width:id==="roomL"?state.room.length:state.room.height; return; }
+    if(id==="roomW") state.room.width=Math.max(1,v);
+    if(id==="roomL") state.room.length=Math.max(1,v);
+    if(id==="roomH") state.room.height=Math.max(1,v);
+    state.items.forEach(clampToRoom);
+    resetCamera();
+    render2D(); resize3D(); render3D(); renderProps(); save();
+  });
+});
+
+document.getElementById("snapToggle").addEventListener("change",e=>{ state.snap=e.target.checked; save(); });
+document.getElementById("gridToggle").addEventListener("change",e=>{ state.grid=e.target.checked; render2D(); render3D(); save(); });
+
+document.getElementById("addBtn").addEventListener("click",()=>{
+  const name=document.getElementById("addName").value.trim() || "Item";
+  let w=parseFloat(document.getElementById("addW").value);
+  let d=parseFloat(document.getElementById("addD").value);
+  let h=parseFloat(document.getElementById("addH").value);
+  if(isNaN(w)||isNaN(d)||isNaN(h)){ return; }
+  w=Math.max(0.1,w); d=Math.max(0.1,d); h=Math.max(0.1,h);
+  // place near center, with slight cascade so they don't perfectly stack
+  const n=state.items.length;
+  const cx=Math.min(state.room.width-w/2, Math.max(w/2, state.room.width/2 + (n%4-1.5)*0.4));
+  const cz=Math.min(state.room.length-d/2, Math.max(d/2, state.room.length/2 + (n%4-1.5)*0.4));
+  const it=addItem(name,w,d,h,cx,cz,0,addColor);
+  // advance default add color
+  addColor = PALETTE[(PALETTE.indexOf(addColor)+1)%PALETTE.length];
+  document.getElementById("addName").value="";
+  renderAddColors();
+  select(it.id);
+  render2D(); render3D(); renderList(); renderProps(); save();
+});
+// Enter key in name field adds
+document.getElementById("addName").addEventListener("keydown",e=>{ if(e.key==="Enter") document.getElementById("addBtn").click(); });
+
+document.getElementById("resetBtn").addEventListener("click",()=>{
+  if(!confirm("Reset the room and furniture to the starting example?")) return;
+  localStorage.removeItem(STORE_KEY);
+  floorEl.innerHTML="";
+  seed();
+  syncRoomInputs();
+  document.getElementById("snapToggle").checked=state.snap;
+  document.getElementById("gridToggle").checked=state.grid;
+  resetCamera();
+  applyView();
+  renderList(); renderProps();
+  save();
+});
+
+function syncRoomInputs(){
+  document.getElementById("roomW").value=trimNum(state.room.width);
+  document.getElementById("roomL").value=trimNum(state.room.length);
+  document.getElementById("roomH").value=trimNum(state.room.height);
+}
+
+/* ----- deselect on empty canvas / floor click ----- */
+stage2d.addEventListener("pointerdown",(e)=>{
+  if(e.target===stage2d || e.target===canvas2d || e.target===gridSvg || e.target===floorEl || e.target.tagName==="rect" || e.target.tagName==="line" || e.target.tagName==="text"){
+    if(state.selectedId){ state.selectedId=null; render2D(); renderList(); renderProps(); render3D(); }
+  }
+});
+
+/* ----- responsive ----- */
+const ro=new ResizeObserver(()=>{ fit2D(); render2D(); resize3D(); render3D(); });
+ro.observe(stage2d); ro.observe(stage3d);
+window.addEventListener("resize",()=>{ fit2D(); render2D(); resize3D(); render3D(); });
+
+/* ============================================================
+   INIT
+   ============================================================ */
+function init(){
+  if(!load()) seed();
+  syncRoomInputs();
+  document.getElementById("snapToggle").checked=state.snap;
+  document.getElementById("gridToggle").checked=state.grid;
+  addColor = PALETTE[nextColor % PALETTE.length];
+  renderAddColors();
+  resetCamera();
+  resize3D();
+  applyView();
+  renderList();
+  renderProps();
+  render2D();
+  render3D();
+}
+init();
+</script>
+</body>
+</html>
