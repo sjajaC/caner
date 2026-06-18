@@ -215,6 +215,22 @@
     touch-action: none;
   }
 
+  /* room-shape edit handles (2D) */
+  .vtx {
+    position: absolute; width: 15px; height: 15px; margin-left: -7.5px; margin-top: -7.5px;
+    background: #fff; border: 2px solid var(--accent); border-radius: 50%; cursor: grab;
+    z-index: 85; touch-action: none; box-shadow: var(--shadow);
+  }
+  .vtx:hover { background: var(--accent-soft); }
+  .vtx:active { cursor: grabbing; }
+  .vadd {
+    position: absolute; width: 19px; height: 19px; margin-left: -9.5px; margin-top: -9.5px;
+    background: var(--accent); color: #fff; border: 2px solid #fff; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center; font-size: 14px; line-height: 1;
+    cursor: pointer; z-index: 84; touch-action: none; opacity: .55; box-shadow: var(--shadow);
+  }
+  .vadd:hover { opacity: 1; transform: scale(1.12); }
+
   /* 3D */
   #view3d { background: linear-gradient(#dfe6ee, #eef1f4); }
   #stage3d { flex: 1; position: relative; }
@@ -273,6 +289,16 @@
   <main>
     <aside>
       <div class="sidebar-scroll">
+        <!-- Room shape -->
+        <div class="card">
+          <h2>Room shape</h2>
+          <div class="body">
+            <label class="toggle"><input type="checkbox" id="editShapeToggle"><span class="switch"></span><span>Edit corners</span></label>
+            <div class="footer-note" id="shapeHint">Turn on to drag the room's corner points. Set the overall size with W / L above; H is the ceiling height.</div>
+            <button class="btn" id="rectBtn">Make rectangular</button>
+          </div>
+        </div>
+
         <!-- Add furniture -->
         <div class="card">
           <h2>Add furniture</h2>
@@ -303,8 +329,9 @@
         </div>
 
         <div class="footer-note">
-          Drag pieces to move. Use the ⟳ button to rotate 90°, or the corner handle to resize.
-          Everything is in meters and stays in sync between 2D and 3D.
+          Drag pieces to move · ⟳ rotates 90° · corner handle resizes.
+          Use “Room shape → Edit corners” to drag corners, the + on a wall to add one,
+          and right-click a corner to remove it. Everything is in meters and stays in sync in 2D &amp; 3D.
         </div>
       </div>
     </aside>
@@ -354,13 +381,16 @@ let nextColor = 0;
 const uid = () => Math.random().toString(36).slice(2, 9);
 
 const state = {
-  room: { width: 5, length: 4, height: 2.7 },
+  // room is a polygon (ordered corner points, meters). width/length are the
+  // bounding-box dimensions, kept in sync from the points. height = ceiling.
+  room: { points: rectPoints(5,4), width: 5, length: 4, height: 2.7 },
   items: [],
   selectedId: null,
   snap: true,
   grid: true,
   gridStep: 0.5,
-  view: "both"
+  view: "both",
+  editShape: false
 };
 
 /* ---------- persistence ---------- */
@@ -381,6 +411,8 @@ function load() {
     const d = JSON.parse(raw);
     if (!d || !d.room) return false;
     state.room = d.room;
+    ensureRoomShape();              // synthesize polygon for older saves
+    state.editShape = false;
     state.items = (d.items||[]).map(it => ({ ...it }));
     state.snap = d.snap !== false;
     state.grid = d.grid !== false;
@@ -391,7 +423,8 @@ function load() {
 }
 
 function seed() {
-  state.room = { width: 5, length: 4, height: 2.7 };
+  state.room = { points: rectPoints(5,4), width: 5, length: 4, height: 2.7 };
+  state.editShape = false;
   state.items = [];
   nextColor = 0;
   addItem("Sofa", 2.1, 0.9, 0.8, 2.5, 0.55, 180);
@@ -435,17 +468,79 @@ function clampToRoom(it){
   else it.z = L/2;
 }
 
+/* ---------- room polygon helpers ---------- */
+function rectPoints(W, L){ return [{x:0,z:0},{x:W,z:0},{x:W,z:L},{x:0,z:L}]; }
+
+// width/length = bounding box of the polygon (origin kept at 0,0).
+function syncRoomDims(){
+  const pts = state.room.points; let mx=0, mz=0;
+  for (const p of pts){ if (p.x>mx) mx=p.x; if (p.z>mz) mz=p.z; }
+  state.room.width  = mx || 1;
+  state.room.length = mz || 1;
+}
+// Repair / migrate a room object so it always has a valid polygon.
+function ensureRoomShape(){
+  const r = state.room;
+  if (!Array.isArray(r.points) || r.points.length < 3) r.points = rectPoints(r.width||5, r.length||4);
+  r.points = r.points.map(p => ({ x: Math.max(0, +p.x||0), z: Math.max(0, +p.z||0) }));
+  if (!(r.height > 0)) r.height = 2.7;
+  syncRoomDims();
+}
+// Ray-casting point-in-polygon (meters).
+function pointInRoom(x, z){
+  const pts = state.room.points; let inside = false;
+  for (let i=0, j=pts.length-1; i<pts.length; j=i++){
+    const xi=pts[i].x, zi=pts[i].z, xj=pts[j].x, zj=pts[j].z;
+    if (((zi>z)!==(zj>z)) && (x < (xj-xi)*(z-zi)/(zj-zi)+xi)) inside = !inside;
+  }
+  return inside;
+}
+// An item is "outside" if any footprint corner (nudged slightly inward, so a
+// piece flush against a wall is fine) falls outside the room polygon.
+function itemOutOfRoom(it){
+  const b = bounds(it), inset = 0.02;
+  const corners = [[b.x0,b.z0],[b.x1,b.z0],[b.x1,b.z1],[b.x0,b.z1]];
+  for (const [px,pz] of corners){
+    const ix = px + (it.x>px ? inset : -inset);
+    const iz = pz + (it.z>pz ? inset : -inset);
+    if (!pointInRoom(ix, iz)) return true;
+  }
+  return false;
+}
+// Inside-polygon spans where a vertical line x=gx (or horizontal z=gz) lies,
+// used to clip the floor grid to the room shape. Returns [[a,b],...].
+function spansVertical(gx){
+  const pts = state.room.points, zs = [];
+  for (let i=0, j=pts.length-1; i<pts.length; j=i++){
+    const xi=pts[i].x, xj=pts[j].x;
+    if ((xi<=gx && xj>gx) || (xj<=gx && xi>gx)){
+      const t=(gx-xi)/(xj-xi); zs.push(pts[i].z + t*(pts[j].z-pts[i].z));
+    }
+  }
+  zs.sort((a,b)=>a-b);
+  const out=[]; for (let k=0; k+1<zs.length; k+=2) out.push([zs[k], zs[k+1]]);
+  return out;
+}
+function spansHorizontal(gz){
+  const pts = state.room.points, xs = [];
+  for (let i=0, j=pts.length-1; i<pts.length; j=i++){
+    const zi=pts[i].z, zj=pts[j].z;
+    if ((zi<=gz && zj>gz) || (zj<=gz && zi>gz)){
+      const t=(gz-zi)/(zj-zi); xs.push(pts[i].x + t*(pts[j].x-pts[i].x));
+    }
+  }
+  xs.sort((a,b)=>a-b);
+  const out=[]; for (let k=0; k+1<xs.length; k+=2) out.push([xs[k], xs[k+1]]);
+  return out;
+}
+
 /* ---------- validation ---------- */
 function computeIssues(){
-  const { width:W, length:L } = state.room;
   const eps = 1e-3;
   const oob = new Set(), over = new Set();
   const msgs = [];
   for (const it of state.items){
-    const b = bounds(it);
-    if (b.x0 < -eps || b.z0 < -eps || b.x1 > W+eps || b.z1 > L+eps){
-      oob.add(it.id);
-    }
+    if (itemOutOfRoom(it)) oob.add(it.id);
   }
   for (let i=0;i<state.items.length;i++){
     for (let j=i+1;j<state.items.length;j++){
@@ -495,24 +590,28 @@ function drawGrid(){
   gridSvg.setAttribute("height", totL);
   gridSvg.setAttribute("viewBox", `0 0 ${totW} ${totL}`);
   const X = m => MARGIN + m*scale2d, Z = m => MARGIN + m*scale2d;
+  const pts = state.room.points;
+  const polyPx = pts.map(p => `${X(p.x)},${Z(p.z)}`).join(" ");
   let s = "";
-  // floor fill
-  s += `<rect x="${MARGIN}" y="${MARGIN}" width="${planW}" height="${planL}" fill="#ffffff" stroke="none"/>`;
+  // room polygon as clip path + white floor fill
+  s += `<defs><clipPath id="roomClip"><polygon points="${polyPx}"/></clipPath></defs>`;
+  s += `<polygon points="${polyPx}" fill="#ffffff"/>`;
+  // grid lines, clipped to the room shape
   if (state.grid){
-    const step = state.gridStep;
-    // minor + major vertical lines (x)
+    const step = state.gridStep; let g = "";
     for (let m=0; m<=W+1e-6; m+=step){
-      const major = Math.abs(m/1 - Math.round(m/1)) < 1e-6;
-      s += `<line x1="${X(m)}" y1="${MARGIN}" x2="${X(m)}" y2="${MARGIN+planL}" stroke="${major?'#cdd5de':'#e9edf1'}" stroke-width="${major?1:1}"/>`;
+      const major = Math.abs(m - Math.round(m)) < 1e-6;
+      g += `<line x1="${X(m)}" y1="${MARGIN}" x2="${X(m)}" y2="${MARGIN+planL}" stroke="${major?'#cdd5de':'#e9edf1'}" stroke-width="1"/>`;
     }
     for (let m=0; m<=L+1e-6; m+=step){
-      const major = Math.abs(m/1 - Math.round(m/1)) < 1e-6;
-      s += `<line x1="${MARGIN}" y1="${Z(m)}" x2="${MARGIN+planW}" y2="${Z(m)}" stroke="${major?'#cdd5de':'#e9edf1'}" stroke-width="1"/>`;
+      const major = Math.abs(m - Math.round(m)) < 1e-6;
+      g += `<line x1="${MARGIN}" y1="${Z(m)}" x2="${MARGIN+planW}" y2="${Z(m)}" stroke="${major?'#cdd5de':'#e9edf1'}" stroke-width="1"/>`;
     }
+    s += `<g clip-path="url(#roomClip)">${g}</g>`;
   }
   // room outline
-  s += `<rect x="${MARGIN}" y="${MARGIN}" width="${planW}" height="${planL}" fill="none" stroke="#9aa6b2" stroke-width="2"/>`;
-  // edge measurement labels (every 1 m)
+  s += `<polygon points="${polyPx}" fill="none" stroke="#9aa6b2" stroke-width="2" stroke-linejoin="round"/>`;
+  // bounding-box tick labels (every 1 m) along top and left
   const labStyle = `font-size="11" fill="#6b7280" font-family="ui-sans-serif,system-ui"`;
   for (let m=0; m<=W+1e-6; m+=1){
     s += `<text x="${X(m)}" y="${MARGIN-10}" text-anchor="middle" ${labStyle}>${trimNum(m)}</text>`;
@@ -522,9 +621,15 @@ function drawGrid(){
     s += `<text x="${MARGIN-9}" y="${Z(m)+4}" text-anchor="end" ${labStyle}>${trimNum(m)}</text>`;
     s += `<line x1="${MARGIN-6}" y1="${Z(m)}" x2="${MARGIN-2}" y2="${Z(m)}" stroke="#b6bfc9"/>`;
   }
-  // dimension captions
-  s += `<text x="${MARGIN+planW/2}" y="${MARGIN+planL+22}" text-anchor="middle" font-size="12" font-weight="600" fill="#4b5563">${trimNum(W)} m</text>`;
-  s += `<text x="${MARGIN+planW+18}" y="${MARGIN+planL/2}" text-anchor="middle" font-size="12" font-weight="600" fill="#4b5563" transform="rotate(90 ${MARGIN+planW+18} ${MARGIN+planL/2})">${trimNum(L)} m</text>`;
+  // per-wall length labels (meters), placed just outside each edge
+  let cx=0, cz=0; for (const p of pts){ cx+=p.x; cz+=p.z; } cx/=pts.length; cz/=pts.length;
+  for (let i=0;i<pts.length;i++){
+    const a=pts[i], b=pts[(i+1)%pts.length];
+    const len=Math.hypot(b.x-a.x, b.z-a.z); if (len<0.05) continue;
+    const mx=(a.x+b.x)/2, mz=(a.z+b.z)/2;
+    let ox=mx-cx, oz=mz-cz; const ol=Math.hypot(ox,oz)||1; ox/=ol; oz/=ol;
+    s += `<text x="${X(mx)+ox*15}" y="${Z(mz)+oz*15+4}" text-anchor="middle" font-size="10.5" font-weight="600" fill="#52606d">${trimNum(len)} m</text>`;
+  }
   // "m" unit near origin
   s += `<text x="${MARGIN-9}" y="${MARGIN-10}" text-anchor="end" font-size="10" fill="#9aa6b2">m</text>`;
   gridSvg.innerHTML = s;
@@ -591,7 +696,79 @@ function render2D(){
     it._el.classList.toggle("bad", bad);
     it._el.classList.toggle("selected", it.id === state.selectedId);
   }
+  renderRoomHandles();
   updateWarnings();
+}
+
+/* ----- room-shape corner handles ----- */
+let vtxEls = [], vaddEls = [];
+function positionRoomHandles(){
+  const pts = state.room.points;
+  for (let i=0;i<vtxEls.length;i++){
+    const p = pts[i]; if (!p) continue;
+    vtxEls[i].style.left = (p.x*scale2d)+"px";
+    vtxEls[i].style.top  = (p.z*scale2d)+"px";
+  }
+  for (let i=0;i<vaddEls.length;i++){
+    const a = pts[i], b = pts[(i+1)%pts.length];
+    vaddEls[i].style.left = ((a.x+b.x)/2*scale2d)+"px";
+    vaddEls[i].style.top  = ((a.z+b.z)/2*scale2d)+"px";
+  }
+}
+function renderRoomHandles(){
+  vtxEls.forEach(e=>e.remove()); vaddEls.forEach(e=>e.remove());
+  vtxEls = []; vaddEls = [];
+  if (!state.editShape) return;
+  const pts = state.room.points;
+  pts.forEach((p,i)=>{
+    const v = document.createElement("div");
+    v.className = "vtx"; v.title = "Drag to move · right-click to delete";
+    floorEl.appendChild(v); vtxEls.push(v); attachVertexEvents(i, v);
+  });
+  pts.forEach((p,i)=>{
+    const ad = document.createElement("div");
+    ad.className = "vadd"; ad.textContent = "+"; ad.title = "Add a corner on this wall";
+    floorEl.appendChild(ad); vaddEls.push(ad);
+    ad.addEventListener("pointerdown",(e)=>{ e.preventDefault(); e.stopPropagation(); addVertex(i); });
+  });
+  positionRoomHandles();
+}
+function attachVertexEvents(i, el){
+  el.addEventListener("contextmenu",(e)=>{ e.preventDefault(); deleteVertex(i); });
+  el.addEventListener("pointerdown",(e)=>{
+    if (e.button === 2) return;                 // right-click → delete (contextmenu)
+    e.preventDefault(); e.stopPropagation();
+    el.setPointerCapture(e.pointerId);
+    const move = (ev)=>{
+      const m = pointerMeters(ev);
+      const nx = Math.max(0, snapVal(m.x)), nz = Math.max(0, snapVal(m.z));
+      state.room.points[i] = { x: round1(nx), z: round1(nz) };
+      syncRoomDims();
+      drawGrid(); positionRoomHandles(); liveValidate(); render3D();
+    };
+    const up = ()=>{
+      el.releasePointerCapture(e.pointerId);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      state.items.forEach(clampToRoom);
+      render2D(); syncRoomInputs(); renderProps(); save();
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+  });
+}
+function addVertex(i){
+  const pts = state.room.points;
+  const a = pts[i], b = pts[(i+1)%pts.length];
+  pts.splice(i+1, 0, { x: round1((a.x+b.x)/2), z: round1((a.z+b.z)/2) });
+  syncRoomDims();
+  render2D(); render3D(); syncRoomInputs(); save();
+}
+function deleteVertex(i){
+  if (state.room.points.length <= 3) return;    // keep at least a triangle
+  state.room.points.splice(i, 1);
+  syncRoomDims(); state.items.forEach(clampToRoom);
+  render2D(); render3D(); syncRoomInputs(); renderProps(); save();
 }
 
 function pointerMeters(e){
@@ -880,23 +1057,27 @@ function render3D(){
     faces.push({pts, color: shade(baseColor, mul), kind, depth, stroke: opts.stroke, fill: opts.fill, selected: opts.selected});
   }
 
-  // ----- floor -----
+  // ----- floor (room polygon) -----
+  const poly = state.room.points;
+  const wpt = (p,y)=>[p.x-hw, y||0, p.z-hl];     // meters → centred world space
   faces.push({
-    pts:[[-hw,0,-hl],[hw,0,-hl],[hw,0,hl],[-hw,0,hl]],
+    pts: poly.map(p=>wpt(p,0)),
     color:"#eef1f5", kind:"floor", stroke:"#d4dae1",
-    depth: Math.hypot(0-eye[0],0-eye[1],0-eye[2])+9999 // force floor first
+    depth: 1e9                                    // force floor to draw first (ground)
   });
 
-  // ----- walls (inward normals; back-face cull hides near walls) -----
+  // ----- walls: one per polygon edge (inward normals; near walls back-face culled) -----
   const wallColor="#f4f6f8";
-  // wall at z=-hl (north), inward normal +z
-  addFace([[-hw,0,-hl],[-hw,RH,-hl],[hw,RH,-hl],[hw,0,-hl]],[0,0,1],wallColor,"wall",{stroke:"#dfe4ea"});
-  // wall at z=+hl (south), inward normal -z
-  addFace([[hw,0,hl],[hw,RH,hl],[-hw,RH,hl],[-hw,0,hl]],[0,0,-1],wallColor,"wall",{stroke:"#dfe4ea"});
-  // wall at x=-hw (west), inward normal +x
-  addFace([[-hw,0,hl],[-hw,RH,hl],[-hw,RH,-hl],[-hw,0,-hl]],[1,0,0],wallColor,"wall",{stroke:"#dfe4ea"});
-  // wall at x=+hw (east), inward normal -x
-  addFace([[hw,0,-hl],[hw,RH,-hl],[hw,RH,hl],[hw,0,hl]],[-1,0,0],wallColor,"wall",{stroke:"#dfe4ea"});
+  let cenx=0, cenz=0; for(const p of poly){ cenx+=p.x; cenz+=p.z; } cenx/=poly.length; cenz/=poly.length;
+  for (let i=0;i<poly.length;i++){
+    const a=poly[i], b=poly[(i+1)%poly.length];
+    const ex=b.x-a.x, ez=b.z-a.z;
+    let n=[ez,0,-ex];                              // perpendicular to the edge
+    const mx=(a.x+b.x)/2, mz=(a.z+b.z)/2;
+    if (n[0]*(cenx-mx)+n[2]*(cenz-mz) < 0) n=[-ez,0,ex];  // make it point into the room
+    n=norm(n);
+    addFace([wpt(a,0), wpt(a,RH), wpt(b,RH), wpt(b,0)], n, wallColor, "wall", {stroke:"#dfe4ea"});
+  }
 
   // ----- furniture boxes -----
   const { over, oob } = computeIssues();
@@ -973,19 +1154,21 @@ function drawFloorGrid(B,W,H,focal,near){
   const { width:RW, length:RL } = state.room;
   const hw=RW/2, hl=RL/2, step=state.gridStep;
   ctx.lineWidth = 1*DPR;
-  const seg=(a,b,major)=>{
-    const pa=project(a,B,W,H,focal), pb=project(b,B,W,H,focal);
+  // draw a floor segment (in meters), clipped to the room polygon spans
+  const seg=(x0,z0,x1,z1,major)=>{
+    const pa=project([x0-hw,0.002,z0-hl],B,W,H,focal);
+    const pb=project([x1-hw,0.002,z1-hl],B,W,H,focal);
     if (pa.z<=near||pb.z<=near) return;
     ctx.strokeStyle = major ? "rgba(150,166,178,.55)" : "rgba(150,166,178,.28)";
     ctx.beginPath(); ctx.moveTo(pa.x,pa.y); ctx.lineTo(pb.x,pb.y); ctx.stroke();
   };
-  for (let m=0;m<=RW+1e-6;m+=step){
-    const major=Math.abs(m-Math.round(m))<1e-6;
-    seg([-hw+m,0.002,-hl],[-hw+m,0.002,hl],major);
+  for (let gx=0; gx<=RW+1e-6; gx+=step){
+    const major=Math.abs(gx-Math.round(gx))<1e-6;
+    for (const [z0,z1] of spansVertical(gx)) seg(gx,z0,gx,z1,major);
   }
-  for (let m=0;m<=RL+1e-6;m+=step){
-    const major=Math.abs(m-Math.round(m))<1e-6;
-    seg([-hw,0.002,-hl+m],[hw,0.002,-hl+m],major);
+  for (let gz=0; gz<=RL+1e-6; gz+=step){
+    const major=Math.abs(gz-Math.round(gz))<1e-6;
+    for (const [x0,x1] of spansHorizontal(gz)) seg(x0,gz,x1,gz,major);
   }
 }
 
@@ -1062,10 +1245,15 @@ document.getElementById("viewSeg").addEventListener("click",(e)=>{
 ["roomW","roomL","roomH"].forEach(id=>{
   document.getElementById(id).addEventListener("change",(e)=>{
     let v=parseFloat(e.target.value);
-    if(isNaN(v)) { e.target.value = id==="roomW"?state.room.width:id==="roomL"?state.room.length:state.room.height; return; }
-    if(id==="roomW") state.room.width=Math.max(1,v);
-    if(id==="roomL") state.room.length=Math.max(1,v);
-    if(id==="roomH") state.room.height=Math.max(1,v);
+    if(isNaN(v)){ syncRoomInputs(); return; }
+    v=Math.max(1, v);
+    if(id==="roomH"){ state.room.height=v; }
+    else {
+      // W / L set the overall rectangle (resets a custom corner shape)
+      if(id==="roomW") state.room.width=v; else state.room.length=v;
+      state.room.points = rectPoints(state.room.width, state.room.length);
+      syncRoomDims();
+    }
     state.items.forEach(clampToRoom);
     resetCamera();
     render2D(); resize3D(); render3D(); renderProps(); save();
@@ -1074,6 +1262,24 @@ document.getElementById("viewSeg").addEventListener("click",(e)=>{
 
 document.getElementById("snapToggle").addEventListener("change",e=>{ state.snap=e.target.checked; save(); });
 document.getElementById("gridToggle").addEventListener("change",e=>{ state.grid=e.target.checked; render2D(); render3D(); save(); });
+
+document.getElementById("editShapeToggle").addEventListener("change",(e)=>{
+  state.editShape = e.target.checked;
+  if (state.editShape && state.view==="3d"){ state.view="both"; applyView(); }
+  updateShapeHint();
+  render2D();
+});
+document.getElementById("rectBtn").addEventListener("click",()=>{
+  state.room.points = rectPoints(state.room.width, state.room.length);
+  syncRoomDims(); state.items.forEach(clampToRoom);
+  render2D(); render3D(); syncRoomInputs(); save();
+});
+function updateShapeHint(){
+  const el=document.getElementById("shapeHint"); if(!el) return;
+  el.innerHTML = state.editShape
+    ? "Drag the round handles to move corners · click a <b>+</b> on a wall to add a corner · right-click a corner to delete it."
+    : "Turn on to drag the room's corner points. Set the overall size with W / L above; H is the ceiling height.";
+}
 
 document.getElementById("addBtn").addEventListener("click",()=>{
   const name=document.getElementById("addName").value.trim() || "Item";
@@ -1100,11 +1306,13 @@ document.getElementById("addName").addEventListener("keydown",e=>{ if(e.key==="E
 document.getElementById("resetBtn").addEventListener("click",()=>{
   if(!confirm("Reset the room and furniture to the starting example?")) return;
   localStorage.removeItem(STORE_KEY);
-  floorEl.innerHTML="";
+  floorEl.innerHTML=""; vtxEls=[]; vaddEls=[];
   seed();
   syncRoomInputs();
   document.getElementById("snapToggle").checked=state.snap;
   document.getElementById("gridToggle").checked=state.grid;
+  document.getElementById("editShapeToggle").checked=false;
+  updateShapeHint();
   resetCamera();
   applyView();
   renderList(); renderProps();
@@ -1119,7 +1327,9 @@ function syncRoomInputs(){
 
 /* ----- deselect on empty canvas / floor click ----- */
 stage2d.addEventListener("pointerdown",(e)=>{
-  if(e.target===stage2d || e.target===canvas2d || e.target===gridSvg || e.target===floorEl || e.target.tagName==="rect" || e.target.tagName==="line" || e.target.tagName==="text"){
+  const t=e.target.tagName;
+  if(e.target===stage2d || e.target===canvas2d || e.target===gridSvg || e.target===floorEl ||
+     t==="rect" || t==="line" || t==="text" || t==="polygon" || t==="svg"){
     if(state.selectedId){ state.selectedId=null; render2D(); renderList(); renderProps(); render3D(); }
   }
 });
@@ -1137,6 +1347,8 @@ function init(){
   syncRoomInputs();
   document.getElementById("snapToggle").checked=state.snap;
   document.getElementById("gridToggle").checked=state.grid;
+  document.getElementById("editShapeToggle").checked=false;
+  updateShapeHint();
   addColor = PALETTE[nextColor % PALETTE.length];
   renderAddColors();
   resetCamera();

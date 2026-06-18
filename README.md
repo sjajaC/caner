@@ -14,8 +14,12 @@ so the whole app is genuinely self-contained and works offline.
 ## Features
 
 **Room setup**
-- Enter room width × length and ceiling height (meters) in the header.
+- Enter room width × length and ceiling height (meters) in the header to set the base rectangle.
 - Floor plan is drawn to scale with a 0.5 m / 1 m grid and edge measurement labels.
+- **Any room shape:** turn on *Room shape → Edit corners* to drag the room's corner
+  points, click the **+** on a wall to add a corner, and right-click a corner to remove it
+  (L-shaped rooms, bays, angled walls, …). Each wall shows its length; the grid, the 3D
+  walls/floor, and the "outside the room" check all follow the custom shape.
 
 **2D top-down view**
 - Furniture shown as labeled, color-coded rectangles, to scale.
